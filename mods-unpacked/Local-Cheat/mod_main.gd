@@ -1,15 +1,15 @@
 extends Node
 
 # Brotato 1.1.x 本地作弊 Mod
-# 菜单：F2 打开 / ESC 关闭（也可点左下角 "F2 作弊"）
-# 快捷键：F3 无限金币 · F4 无敌 · F5 清空本波敌人 · F6 自动清怪
+#   F2  : 打开 / 关闭作弊菜单（ESC 关闭；也可点左下角 “F2 作弊”）
+#   F3  : 无限金币   F4 : 无敌   F5 : 清空本波敌人   F6 : 自动清怪
 # 所有开关默认关闭，用到再开。
 
 const MOD_ID := "Local-Cheat"
 const THEME_PATH := "res://resources/themes/base_theme.tres"
 const CJK_FONT_PATH := "res://resources/fonts/raw/NotoSansSC-Medium.otf"
 
-# ---- 开关状态 ----
+# ---------------- 开关状态 ----------------
 var infinite_gold := false
 var auto_level := false
 var free_shop := false
@@ -24,14 +24,17 @@ var auto_clear := false
 var gold_target := 999999
 var stat_value := 1000
 
-# ---- UI ----
+# ---------------- 内部 ----------------
 var _menu_open := false
 var _tick := 0.0
 var _instant_timer := 0.0
 var _toast_time := 0.0
 var _layout_logged := false
-var _effect_logged := false
+var _shop_logged := false
+var _shop_dbg_t := 0.0
+var _shop_cache = null
 var _orig_hp := {}
+var _orig_item_price := {}
 
 var _ui: CanvasLayer
 var _root: Control
@@ -41,17 +44,22 @@ var _hint: Label
 var _toast: Label
 var _status: Label
 var _log_path := "user://Local-Cheat.log"
-
-var _tg: Dictionary = {}
+var _tg := {}
 
 
 func _ready() -> void:
+	# 同一脚本可能被加载两次（autoload + ModLoader），只让第一个建 UI
+	var tree = get_tree()
+	if tree != null:
+		if tree.has_meta("local_cheat_built"):
+			return
+		tree.set_meta("local_cheat_built", true)
 	_build_ui()
 	_log("[%s] loaded | F2 菜单 | F3 金币 | F4 无敌 | F5 清怪 | F6 自动清怪 | ESC 关闭" % MOD_ID)
 	_update_ui()
 
 
-# ================================================================ 日志
+# ================================================================ 工具
 func _log(msg: String) -> void:
 	print(msg)
 	var f := File.new()
@@ -73,7 +81,30 @@ func _toast_show(msg: String) -> void:
 	_toast_time = 2.0
 
 
-# ================================================================ UI 构建
+func _props(obj) -> Array:
+	var out := []
+	if obj == null:
+		return out
+	var lst: Array = obj.get_property_list()
+	for pr in lst:
+		out.append(str(pr.get("name", "")))
+	return out
+
+
+func _method_names(obj) -> Array:
+	var out := []
+	if obj == null:
+		return out
+	var lst: Array = obj.get_method_list()
+	for m in lst:
+		var n = str(m.get("name", ""))
+		if n != "" and not out.has(n):
+			out.append(n)
+	out.sort()
+	return out
+
+
+# ================================================================ UI
 func _mk_font(size: int) -> DynamicFont:
 	var f := DynamicFont.new()
 	var data: Resource = load(CJK_FONT_PATH)
@@ -160,7 +191,6 @@ func _build_ui() -> void:
 	_status.horizontal_align = Label.ALIGN_CENTER
 	col.add_child(_status)
 
-	# ---- 开关区（两列） ----
 	col.add_child(_section_label("开关", f_sec))
 	col.add_child(_separator())
 	var grid := GridContainer.new()
@@ -180,7 +210,6 @@ func _build_ui() -> void:
 	_add_toggle(grid, "cooldown", "无限冷却", f_body)
 	_add_toggle(grid, "clear", "自动清怪", f_body)
 
-	# ---- 操作区（两列） ----
 	col.add_child(_section_label("操作", f_sec))
 	col.add_child(_separator())
 	var bgrid := GridContainer.new()
@@ -244,7 +273,6 @@ func _add_toggle(parent: Node, id: String, text: String, font: DynamicFont) -> v
 	b.add_font_override("font", font)
 	b.focus_mode = Control.FOCUS_NONE
 	b.rect_min_size = Vector2(205, 28)
-	# 去掉主题自带的黑色方框，只显示开关本体
 	var empty := StyleBoxEmpty.new()
 	b.add_stylebox_override("normal", empty)
 	b.add_stylebox_override("hover", empty)
@@ -276,7 +304,6 @@ func _on_hint_input(event: InputEvent) -> void:
 			_toast_show("作弊菜单：已打开" if _menu_open else "作弊菜单：已关闭")
 
 
-# ================================================================ 布局
 func _set_rect(c: Control, pos: Vector2, size: Vector2) -> void:
 	if c == null:
 		return
@@ -300,7 +327,7 @@ func _layout() -> void:
 		if tw < 10.0:
 			tw = 300.0
 		_set_rect(_toast, Vector2(floor((vs.x - tw) * 0.5), 70), Vector2(tw, 30))
-	if _panel != null and not _layout_logged:
+	if _panel != null and _menu_open and not _layout_logged:
 		_layout_logged = true
 		_log("[layout] viewport=" + str(vs) + " panel_rect=" + str(_panel.get_rect()))
 
@@ -326,44 +353,66 @@ func _update_ui() -> void:
 
 
 # ================================================================ 输入
-func _input(event: InputEvent) -> void:
-	if not (event is InputEventKey):
-		return
-	var k := event as InputEventKey
-	if not k.pressed or k.echo:
-		return
-	if _menu_open and (_is_key(k, KEY_ESCAPE) or event.is_action_pressed("ui_cancel")):
-		_close_menu()
-		get_viewport().set_input_as_handled()
-		return
-	if _is_key(k, KEY_F2):
-		_menu_open = not _menu_open
-		_update_ui()
-		_toast_show("作弊菜单：已打开" if _menu_open else "作弊菜单：已关闭")
-	elif _is_key(k, KEY_F3):
-		_set_toggle("gold", not _tg["gold"].pressed)
-	elif _is_key(k, KEY_F4):
-		_set_toggle("god", not _tg["god"].pressed)
-	elif _is_key(k, KEY_F5):
-		_clear_wave()
-	elif _is_key(k, KEY_F6):
-		_set_toggle("clear", not _tg["clear"].pressed)
-	else:
-		return
-	get_viewport().set_input_as_handled()
+# 用「轮询按键状态」而不是 _input 事件：
+# 游戏自己的节点可能先消费掉按键事件，轮询则完全不受事件传播顺序影响。
+const KEY_MAP := [
+	[KEY_F2, "menu"],
+	[KEY_F3, "gold"],
+	[KEY_F4, "god"],
+	[KEY_F5, "clearwave"],
+	[KEY_F6, "autoclear"],
+	[KEY_ESCAPE, "esc"],
+]
+
+var _key_down := {}
 
 
-func _is_key(k: InputEventKey, key: int) -> bool:
-	if k.scancode == key or k.physical_scancode == key:
-		return true
-	var low := key & 0xFFFFFF
-	if (k.scancode & 0xFFFFFF) != low:
-		return false
-	return (k.scancode >> 24) == 1 or (k.scancode >> 22) == 1
+func _poll_keys() -> void:
+	for entry in KEY_MAP:
+		var code = entry[0]
+		var id = str(entry[1])
+		var down = Input.is_key_pressed(code)
+		var was = bool(_key_down.get(id, false))
+		_key_down[id] = down
+		if down and not was:
+			_handle_key_id(id)
+
+
+func _handle_key_id(id: String) -> void:
+	match id:
+		"menu":
+			_menu_open = not _menu_open
+			_update_ui()
+			_toast_show("作弊菜单：已打开" if _menu_open else "作弊菜单：已关闭")
+			_log("[key] F2 菜单 -> " + str(_menu_open))
+		"gold":
+			_set_toggle("gold", not _tg["gold"].pressed)
+		"god":
+			_set_toggle("god", not _tg["god"].pressed)
+		"clearwave":
+			_clear_wave()
+		"autoclear":
+			_set_toggle("clear", not _tg["clear"].pressed)
+		"esc":
+			if _menu_open:
+				_close_menu()
+				_toast_show("作弊菜单：已关闭")
+				_log("[key] ESC 关闭菜单")
 
 
 # ================================================================ 开关
-func _on_toggle_changed(id: String, pressed: bool) -> void:
+func _on_toggle_changed(a = null, b = null) -> void:
+	var id := ""
+	var pressed := false
+	if typeof(a) == TYPE_STRING:
+		id = str(a)
+		pressed = bool(b)
+	else:
+		pressed = bool(a)
+		id = str(b)
+	if id == "":
+		return
+	_log("[toggle] id=" + id + " pressed=" + str(pressed))
 	_set_toggle(id, pressed)
 
 
@@ -395,13 +444,13 @@ func _on_level(v: bool) -> void:
 
 func _on_shop(v: bool) -> void:
 	free_shop = v
-	_apply_free_shop()
+	_apply_shop_cheats()
 	_toast_show("免费商店：开" if v else "免费商店：关")
 
 
 func _on_reroll(v: bool) -> void:
 	free_reroll = v
-	_apply_free_reroll()
+	_apply_shop_cheats()
 	_toast_show("免费刷新：开" if v else "免费刷新：关")
 
 
@@ -456,8 +505,7 @@ func _reset_all() -> void:
 	_apply_stat("stat_lifesteal", -stat_value)
 	_apply_stat("stat_attack_speed", -stat_value)
 	_apply_huge_hp()
-	_apply_free_shop()
-	_apply_free_reroll()
+	_apply_shop_cheats()
 	var rd = get_node_or_null("/root/RunData")
 	if rd != null:
 		rd.set("invulnerable", false)
@@ -473,7 +521,6 @@ func _close_menu() -> void:
 
 
 # ================================================================ 功能实现
-# 清空本波敌人
 func _clear_wave(quiet: bool = false) -> void:
 	var killed := 0
 	for e in _find_enemies():
@@ -492,7 +539,6 @@ func _clear_wave(quiet: bool = false) -> void:
 		_update_ui()
 
 
-# 立刻结束本波：让本波计时器马上超时
 func _end_wave() -> void:
 	var rd = get_node_or_null("/root/RunData")
 	if rd == null:
@@ -510,7 +556,6 @@ func _end_wave() -> void:
 	_update_ui()
 
 
-# 无敌 / 回血 / 生命上限
 func _apply_god_mode() -> void:
 	var rd = get_node_or_null("/root/RunData")
 	if rd != null:
@@ -534,7 +579,6 @@ func _apply_god_mode() -> void:
 			st.set("health", ms.get("health"))
 
 
-# 生命上限：记住原值以便还原
 func _apply_huge_hp() -> void:
 	var pls := _get_players()
 	for i in range(pls.size()):
@@ -550,70 +594,121 @@ func _apply_huge_hp() -> void:
 			_orig_hp.erase(i)
 
 
-# 免费商店：把 items_price / reroll_price 的价格加成压到 0
-func _apply_free_shop() -> void:
-	if free_shop:
-		_apply_stat("items_price", -100)
-		_set_effect("items_price", 0)
+# ---------------- 商店 ----------------
+# 1.1.x 的商店价格/免费次数是「按玩家分的数组」：
+#   _reroll_price = [59, 0, 0, 0]   ← 每个玩家一个刷新价
+#   _free_rerolls = [0, 0, 0, 0]    ← 每个玩家的免费刷新次数
+# 所以要逐个玩家写，不能当标量赋值。
+#
+# 刷新：把免费次数拉满 + 把刷新价清零 + 打开 bonus 免费标记
+# 商品：ShopItem.value 是实际扣费金额，清零即免费，并刷新按钮上的显示
+func _apply_shop_cheats() -> void:
+	var shops := []
+	if _shop_cache != null and is_instance_valid(_shop_cache):
+		shops = [_shop_cache]
 	else:
-		_apply_stat("items_price", 100)
-		_set_effect("items_price", 100)
-
-
-# 免费刷新：free_rerolls 拉满 + reroll_price 压到 0
-func _apply_free_reroll() -> void:
-	if free_reroll:
-		_apply_stat("reroll_price", -100)
-		_set_effect("free_rerolls", 999)
-	else:
-		_apply_stat("reroll_price", 100)
-		_set_effect("free_rerolls", 0)
-
-
-# 通用：写玩家效果（自动兼容字符串键 / 哈希键）
-func _set_effect(key: String, value) -> void:
-	var rd = get_node_or_null("/root/RunData")
-	if rd == null or not rd.has_method("get_player_effects"):
+		shops = _find_shops()
+		if shops.size() > 0:
+			_shop_cache = shops[0]
+	if shops.size() == 0:
+		if not _shop_logged:
+			_shop_logged = true
+			_log("[shop] 没找到商店节点（当前不在商店界面？）")
 		return
-	var n: int = _player_count()
-	if n <= 0:
-		return
-	var used_hash := false
-	for i in range(n):
-		var effs = rd.get_player_effects(i)
-		if effs == null:
+	for shop in shops:
+		if not _shop_logged:
+			_shop_logged = true
+			_log("[shop] node=" + str(shop.get_path()) + " visible=" + str(shop.is_visible_in_tree())
+				+ " reroll_price=" + str(shop.get("_reroll_price"))
+				+ " free_rerolls=" + str(shop.get("_free_rerolls")))
+			var ms: Array = []
+			for m in _method_names(shop):
+				if m.find("reroll") != -1 or m.find("price") != -1:
+					ms.append(m)
+			_log("[shop] reroll/price methods: " + str(ms))
+			var its = shop.get("_shop_items")
+			if typeof(its) == TYPE_ARRAY and its.size() > 0:
+				var it0 = its[0]
+				if typeof(it0) == TYPE_OBJECT:
+					_log("[shop] item0 value=" + str(it0.get("value")) + " type=" + str(typeof(it0.get("value"))))
+		if free_reroll:
+			var before_price = str(shop.get("_reroll_price"))
+			var before_free = str(shop.get("_free_rerolls"))
+			_set_shop_field(shop, "_free_rerolls", 999)
+			_set_shop_field(shop, "_reroll_price", 0)
+			shop.set("_has_bonus_free_reroll", true)
+			if shop.has_method("set_reroll_button_price"):
+				shop.call("set_reroll_button_price")
+			_set_reroll_button_label(shop, 0)
+			_shop_dbg_t += 0.2
+			if _shop_dbg_t >= 0.6:
+				_shop_dbg_t = 0.0
+				_log("[shop] price " + before_price + " -> " + str(shop.get("_reroll_price"))
+					+ " | free " + before_free + " -> " + str(shop.get("_free_rerolls"))
+					+ " | gold=" + str(_gold_txt())
+					+ " | btn=" + str(_reroll_button_text(shop)))
+		var items = shop.get("_shop_items")
+		if typeof(items) != TYPE_ARRAY:
 			continue
-		if effs.has(key):
-			effs[key] = value
-		else:
-			var keys = get_node_or_null("/root/Keys")
-			if keys == null:
+		for it in items:
+			if typeof(it) != TYPE_OBJECT:
 				continue
-			effs[keys.call("generate_hash", key)] = value
-			used_hash = true
-	if not _effect_logged:
-		_effect_logged = true
-		_log("[effect] sample keys: " + str(_effect_keys()) + " hashed=" + str(used_hash))
+			if not ("value" in it):
+				continue
+			var key = it.get_instance_id()
+			if free_shop:
+				if not _orig_item_price.has(key):
+					_orig_item_price[key] = it.get("value")
+				_set_shop_field(it, "value", 0)
+				_set_shop_item_label(it, 0)
+			elif _orig_item_price.has(key):
+				_set_shop_field(it, "value", _orig_item_price[key])
+				_set_shop_item_label(it, _orig_item_price[key])
+				_orig_item_price.erase(key)
 
 
-func _effect_keys() -> Array:
-	var out := []
-	var rd = get_node_or_null("/root/RunData")
-	if rd == null or not rd.has_method("get_player_effects"):
-		return out
-	var n: int = _player_count()
-	if n <= 0:
-		return out
-	var effs = rd.get_player_effects(0)
-	if effs == null:
-		return out
-	var keys: Array = effs.keys()
-	for i in range(min(30, keys.size())):
-		out.append(str(keys[i]))
-	return out
+# 数组就逐个元素写，标量就直接赋值
+func _set_shop_field(obj, field: String, value) -> void:
+	var cur = obj.get(field)
+	if typeof(cur) == TYPE_ARRAY:
+		for i in range(cur.size()):
+			cur[i] = value
+	else:
+		obj.set(field, value)
 
 
-# 通用：加减属性（兼容不同参数个数）
+func _set_shop_item_label(item, value) -> void:
+	var btn = item.get("_button")
+	if btn != null and typeof(btn) == TYPE_OBJECT and btn.has_method("set_value"):
+		btn.call("set_value", value)
+
+
+func _reroll_button_text(shop) -> String:
+	var btn = _find_node_named(shop, "RerollButton")
+	if btn == null:
+		return "no-button"
+	var txt := ""
+	for c in btn.get_children():
+		if c is Label:
+			txt = c.text
+			break
+	if txt == "" and ("value" in btn):
+		txt = str(btn.get("value"))
+	return txt
+
+
+# 刷新按钮上的价格显示（按钮节点名可能变，找不到就跳过）
+func _set_reroll_button_label(shop, value) -> void:
+	var btn = _find_node_named(shop, "RerollButton")
+	if btn == null:
+		return
+	if btn.has_method("set_value"):
+		btn.call("set_value", value)
+	elif "value" in btn:
+		btn.set("value", value)
+
+
+# ---------------- 属性 ----------------
 func _apply_stat(key: String, value: int) -> void:
 	var rd = get_node_or_null("/root/RunData")
 	if rd == null:
@@ -637,6 +732,7 @@ func _apply_stat(key: String, value: int) -> void:
 
 # ================================================================ 主循环
 func _process(delta: float) -> void:
+	_poll_keys()
 	_layout()
 	if _toast_time > 0.0:
 		_toast_time -= delta
@@ -650,6 +746,8 @@ func _process(delta: float) -> void:
 				rd0.set("instant_waves", false)
 	if god_mode or huge_hp or auto_heal:
 		_apply_god_mode()
+	if free_shop or free_reroll:
+		_apply_shop_cheats()
 	_tick += delta
 	if _tick < 0.2:
 		return
@@ -660,9 +758,6 @@ func _process(delta: float) -> void:
 		_apply_gold()
 	if auto_level:
 		_apply_xp()
-	if free_shop or free_reroll:
-		_apply_free_shop()
-		_apply_free_reroll()
 	if auto_clear:
 		_clear_wave(true)
 
@@ -743,6 +838,31 @@ func _hp_txt() -> String:
 
 
 # ================================================================ 节点查找
+# 找到所有真正的商店节点（排除 shop_item.gd / base_shop.gd）
+func _find_shops() -> Array:
+	var out := []
+	var root := get_tree().get_root()
+	if root == null:
+		return out
+	var stack: Array = [root]
+	while not stack.empty():
+		var n: Node = stack.pop_back()
+		for c in n.get_children():
+			stack.append(c)
+		var sc: Object = n.get_script()
+		if sc == null:
+			continue
+		var path := str(sc.resource_path)
+		if path.find("/ui/menus/shop/") == -1:
+			continue
+		if path.find("shop_item.gd") != -1 or path.find("base_shop.gd") != -1:
+			continue
+		if not ("_shop_items" in n):
+			continue
+		out.append(n)
+	return out
+
+
 func _find_enemies() -> Array:
 	var out := []
 	var root := get_tree().get_root()

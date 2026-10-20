@@ -13,8 +13,8 @@
 |---|---|---|
 | 资源 | 无限金币 | 每 0.2s 把金币补到 999999 |
 | 资源 | 无限经验 | 持续加经验，自动升级 |
-| 资源 | 免费商店 | 商品价格加成归零 |
-| 资源 | 免费刷新 | 商店刷新次数拉满、刷新价格归零 |
+| 资源 | 免费商店 | 商店里所有商品价格清零（含按钮显示） |
+| 资源 | 免费刷新 | 商店刷新次数拉满、刷新价格归零（按玩家逐个生效） |
 | 战斗 | 无敌模式 | 关闭受击框 + 停掉无敌倒计时/持续掉血计时器 |
 | 战斗 | 自动回满血 | 血量每帧保持满 |
 | 战斗 | 生命上限 999999 | 可一键还原成原值 |
@@ -39,6 +39,8 @@
 | `F6` | 自动清怪 开/关 |
 
 > 游戏用键盘 `1`~`4` 选角色、`空格` 等操作，这些都没有冲突；`F2`/`ESC` 在原版里没有绑定功能。
+> 按键是用 **轮询 `Input.is_key_pressed()`** 实现的（不是事件回调），
+> 所以不受游戏自身快捷键或事件传播顺序影响。
 
 ---
 
@@ -64,6 +66,12 @@ python tools\pck_patch.py --game "D:\game\Brotato"
 2. 把 `mods-unpacked/Local-Cheat/` 里的文件追加成 `res://mods-unpacked/Local-Cheat/*`
 3. 重新计算文件表与所有文件的偏移，校验 MD5
 4. 写出新 pck（原文件自动备份为 `Brotato.pck.bak`）
+5. **顺带写一份 `override.cfg`**，把 mod 注册成 autoload
+
+> 第 5 步很关键：Steam 模拟器/离线环境下，游戏自己重启后的那个实例会
+> 把 ModLoader 关掉（`Mods are currently disabled`），创意工坊和本地 zip 都加载不了。
+> 注册成 autoload 后，**无论 ModLoader 是否被禁用，mod 一定会加载**。
+> 删掉 `override.cfg` 即可回到纯 ModLoader 模式。
 
 **还原**：`copy /Y Brotato.pck.bak Brotato.pck`
 
@@ -131,6 +139,7 @@ Brotato 内部结构、Mod Loader 原理，到我们每个功能的实现、PCK 
 │   └── build_zip.py       # 打包成 ModLoader zip
 ├── docs/
 │   ├── BOOK.md            # ★《土豆兄弟修改器开发手记》完整教程（11 章 + 3 附录）
+│   ├── LESSONS.md         # ★ 后期踩坑与最终方案（12 章，血泪史）
 │   ├── INSTALL.md         # 详细安装与排错
 │   └── REVERSE.md         # 逆向笔记（PCK 格式 / Godot 老 API / 关键接口）
 ├── README.md

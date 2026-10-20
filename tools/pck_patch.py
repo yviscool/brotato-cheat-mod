@@ -102,11 +102,30 @@ def find_game_dir(explicit=None):
     return None
 
 
+def write_override_cfg(exe_dir, mod_name):
+    """把 mod 注册成 autoload，这样即使游戏自己禁用了 ModLoader，mod 也一定会加载。"""
+    path = os.path.join(exe_dir, "override.cfg")
+    content = ('[autoload]' + chr(10) + chr(10)
+               + '%s="*res://mods-unpacked/%s/mod_main.gd"' % (mod_name, mod_name)
+               + chr(10))
+    if os.path.isfile(path):
+        old = open(path, "r", encoding="utf-8", errors="replace").read()
+        if ('mods-unpacked/%s/mod_main.gd' % mod_name) in old:
+            print("override.cfg 已有该 autoload，跳过:", path)
+            return
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    print("已写入 override.cfg（保证 mod 每次加载）:", path)
+    print("   删除该文件即可回到纯 ModLoader 模式")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--game", help="Brotato 安装目录（含 common/Brotato/Brotato.pck 的那个）")
     ap.add_argument("--mod", default="mods-unpacked/Local-Cheat", help="mod 目录")
     ap.add_argument("--no-backup", action="store_true")
+    ap.add_argument("--no-autoload", action="store_true",
+                    help="不写 override.cfg（默认会写，保证 mod 每次都能加载）")
     args = ap.parse_args()
 
     game = find_game_dir(args.game)
@@ -187,6 +206,9 @@ def main():
         for path, raw, o, s, md5, content in payload:
             out.write(content)
     os.replace(tmp, pck)
+
+    if not args.no_autoload:
+        write_override_cfg(os.path.dirname(pck), mod_name)
 
     print("已写入 %d 个文件到 %s" % (len(payload), pck))
     for e in payload:
