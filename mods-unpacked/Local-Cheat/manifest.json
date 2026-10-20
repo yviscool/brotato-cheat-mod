@@ -1,0 +1,23 @@
+{
+	"name": "Cheat",
+	"namespace": "Local",
+	"version_number": "1.0.0",
+	"description": "Local cheat helpers: F2 opens the developer debug menu (gold / invulnerable / unlock all / kill all / goto wave), F3 toggles infinite gold.",
+	"website_url": "",
+	"dependencies": [],
+	"extra": {
+		"godot": {
+			"incompatibilities": [],
+			"authors": [
+				"Local"
+			],
+			"compatible_mod_loader_version": [
+				"6.3.0"
+			],
+			"compatible_game_version": [
+				"1.1.X.X"
+			],
+			"optional_dependencies": []
+		}
+	}
+}
