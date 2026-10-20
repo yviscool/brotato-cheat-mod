@@ -113,6 +113,12 @@ Mod 会把日志写到（不会被游戏轮转覆盖，比 `godot.log` 好用）
 
 ---
 
+## 📖 想系统学习？
+
+**[《土豆兄弟修改器开发手记》](docs/BOOK.md)** —— 11 章 + 3 附录，从 Godot 引擎基础、
+Brotato 内部结构、Mod Loader 原理，到我们每个功能的实现、PCK 注入原理、
+逆向方法论、20 条避坑清单，以及「如何自己加一个新功能」的完整示例。
+
 ## 📂 目录结构
 
 ```
@@ -124,6 +130,7 @@ Mod 会把日志写到（不会被游戏轮转覆盖，比 `godot.log` 好用）
 │   ├── pck_patch.py       # 把 mod 写进 Brotato.pck
 │   └── build_zip.py       # 打包成 ModLoader zip
 ├── docs/
+│   ├── BOOK.md            # ★《土豆兄弟修改器开发手记》完整教程（11 章 + 3 附录）
 │   ├── INSTALL.md         # 详细安装与排错
 │   └── REVERSE.md         # 逆向笔记（PCK 格式 / Godot 老 API / 关键接口）
 ├── README.md
