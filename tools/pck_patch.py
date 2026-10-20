@@ -63,21 +63,41 @@ def encode_path(path):
     return b
 
 
+DEFAULT_DIRS = [
+    r"D:\game\Brotato",
+    r"C:\Program Files (x86)\Steam\steamapps\common\Brotato",
+    os.path.expandvars(r"%ProgramFiles(x86)%\Steam\steamapps\common\Brotato"),
+    os.path.expandvars(r"%ProgramFiles%\Steam\steamapps\common\Brotato"),
+]
+
+
+def find_pck(game_dir):
+    """在若干常见布局里找 Brotato.pck；找不到就浅层递归搜一遍。"""
+    cands = [
+        os.path.join(game_dir, "common", "Brotato", "Brotato.pck"),
+        os.path.join(game_dir, "Brotato", "common", "Brotato", "Brotato.pck"),
+        os.path.join(game_dir, "Brotato.pck"),
+        os.path.join(game_dir, "common", "Brotato.pck"),
+    ]
+    for c in cands:
+        if os.path.isfile(c):
+            return c
+    for root, dirs, files in os.walk(game_dir):
+        if root[len(game_dir):].count(os.sep) > 3:
+            dirs[:] = []
+        if "Brotato.pck" in files:
+            return os.path.join(root, "Brotato.pck")
+    return None
+
+
 def find_game_dir(explicit=None):
     if explicit:
         return os.path.abspath(explicit)
-    cands = [
-        r"D:\game\Brotato",
-        r"C:\Program Files (x86)\Steam\steamapps\common\Brotato",
-        os.path.expandvars(r"%ProgramFiles(x86)%\Steam\steamapps\common\Brotato"),
-        os.path.expandvars(r"%ProgramFiles%\Steam\steamapps\common\Brotato"),
-    ]
-    for c in cands:
-        if c and os.path.isfile(os.path.join(c, "common", "Brotato", "Brotato.pck")):
-            return os.path.abspath(c)
-    # 退而求其次：找 exe 目录
-    for c in cands:
+    for c in DEFAULT_DIRS:
         if c and os.path.isfile(os.path.join(c, "Brotato.exe")):
+            return os.path.abspath(c)
+    for c in DEFAULT_DIRS:
+        if c and os.path.isdir(c):
             return os.path.abspath(c)
     return None
 
@@ -93,10 +113,13 @@ def main():
     if not game:
         print("找不到 Brotato 安装目录，请用 --game 指定")
         return 1
-    pck = os.path.join(game, "common", "Brotato", "Brotato.pck")
-    if not os.path.isfile(pck):
-        print("找不到 Brotato.pck:", pck)
+    pck = find_pck(game)
+    if not pck:
+        print("在", game, "下找不到 Brotato.pck")
+        print("请用 --game 指定游戏目录，例如：")
+        print(r'    python tools\pck_patch.py --game "D:\game\Brotato"')
         return 1
+    print("目标 pck:", pck)
 
     mod_dir = os.path.abspath(args.mod)
     if not os.path.isdir(mod_dir):
@@ -166,8 +189,8 @@ def main():
     os.replace(tmp, pck)
 
     print("已写入 %d 个文件到 %s" % (len(payload), pck))
-    for arc, _ in payload:
-        print("   +", arc)
+    for e in payload:
+        print("   +", e[0])
     print("原文件备份:", pck + ".bak")
     print("还原方法:  copy /Y \"%s.bak\" \"%s\"" % (pck, pck))
     return 0
